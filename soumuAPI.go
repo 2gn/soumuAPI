@@ -5,8 +5,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"zylo/reiwa"
 	"zylo/win32"
@@ -67,9 +69,30 @@ func readACAG() {
 	numberTable, _ = numberReader.ReadAll()
 }
 
-func accessAPI(callsign string) (*SearchResult, error) {
-	//空データを作る
+func raiseError(err error) {
+	_, file, line, ok := runtime.Caller(1)
+	if !ok {
+		reiwa.DisplayToast("Error in raiseError")
+	}
+	reiwa.DisplayToast(fmt.Sprintf("In %s, at %d: %s", file, line, err.Error()))
+}
+
+func parseResult(resp *http.Response) (*SearchResult, error) {
 	data := new(SearchResult)
+	byteArray, _ := io.ReadAll(resp.Body)
+	jsonBytes := ([]byte)(byteArray)
+
+	// unmarshalに操作失敗したらエラー
+	if err := json.Unmarshal(jsonBytes, data); err != nil {
+		raiseError(err)
+		return data, err
+	}
+	return data, nil
+}
+
+func accessAPI(callsign string) (*SearchResult, error) {
+	data := new(SearchResult)
+	//空データを作る
 	//コールサインをzlogから取得
 
 	// APIからjsonデータを取得
@@ -79,19 +102,12 @@ func accessAPI(callsign string) (*SearchResult, error) {
 
 	//httpアクセスでエラーを吐いた時は出る
 	if err != nil {
-		reiwa.DisplayToast(err.Error())
+		raiseError(err)
 		return data, err
 	}
 
-	byteArray, _ := io.ReadAll(resp.Body)
-	jsonBytes := ([]byte)(byteArray)
+	return parseResult(resp)
 
-	// unmarshalに操作失敗したらエラー
-	if err := json.Unmarshal(jsonBytes, data); err != nil {
-		reiwa.DisplayToast(err.Error())
-		return data, err
-	}
-	return data, nil
 }
 
 func update(data SearchResult) {
@@ -146,11 +162,20 @@ func freqstring(index string) string {
 	}
 }
 
+func onInsertEvent(qso *reiwa.QSO) {
+	// data, err := accessAPI(qso.GetCallSign())
+	// if err != nil {
+	// 	raiseError(err)
+	// 	return
+	// }
+	// reiwa.DisplayToast(data.Musen[0].DetailInfo.RadioEuipmentLocation)
+}
+
 func btnpush() {
 	callsign := reiwa.Query("$B")
 	if len(callsign) < 4 {
 		err := errors.New("callsign too short")
-		reiwa.DisplayToast(err.Error())
+		raiseError(err)
 		return
 	}
 	data, err := accessAPI(callsign)
@@ -190,6 +215,7 @@ func makewindow() {
 
 func init() {
 	reiwa.OnLaunchEvent = onLaunchEvent
+	reiwa.OnInsertEvent = onInsertEvent
 	reiwa.PluginName = "soumuAPI"
 }
 
