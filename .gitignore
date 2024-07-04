@@ -11,3 +11,4 @@ zbuild-*
 asset.go
 !.github
 !.gitignore
+build.ps1
