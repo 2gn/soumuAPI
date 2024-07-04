@@ -67,19 +67,13 @@ func readACAG() {
 	numberTable, _ = numberReader.ReadAll()
 }
 
-func accessAPI() (*SearchResult, error) {
+func accessAPI(callsign string) (*SearchResult, error) {
 	//空データを作る
 	data := new(SearchResult)
 	//コールサインをzlogから取得
-	callSign := reiwa.Query("$B")
-	if len(callSign) < 4 {
-		err := errors.New("callsign too short")
-		reiwa.DisplayToast(err.Error())
-		return data, err
-	}
 
 	// APIからjsonデータを取得
-	url := "https://www.tele.soumu.go.jp/musen/list?ST=1&OF=2&DA=1&OW=AT&SK=2&DC=1&SC=1&MA=" + callSign
+	url := "https://www.tele.soumu.go.jp/musen/list?ST=1&OF=2&DA=1&OW=AT&SK=2&DC=1&SC=1&MA=" + callsign
 	resp, err := http.Get(url)
 	defer resp.Body.Close()
 
@@ -153,7 +147,13 @@ func freqstring(index string) string {
 }
 
 func btnpush() {
-	data, err := accessAPI()
+	callsign := reiwa.Query("$B")
+	if len(callsign) < 4 {
+		err := errors.New("callsign too short")
+		reiwa.DisplayToast(err.Error())
+		return
+	}
+	data, err := accessAPI(callsign)
 	if err == nil {
 		update(*data)
 	}
