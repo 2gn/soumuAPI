@@ -5,13 +5,14 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"github.com/sqweek/dialog"
-	"github.com/tadvi/winc"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"zylo/reiwa"
 	"zylo/win32"
+
+	"github.com/sqweek/dialog"
+	"github.com/tadvi/winc"
 )
 
 const winsize = "soumuAPIwindow"
@@ -88,7 +89,7 @@ func accessAPI() (*SearchResult, error) {
 		return data, err
 	}
 
-	byteArray, _ := ioutil.ReadAll(resp.Body)
+	byteArray, _ := io.ReadAll(resp.Body)
 	jsonBytes := ([]byte)(byteArray)
 
 	// unmarshalに操作失敗したらエラー
