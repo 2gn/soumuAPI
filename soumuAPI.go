@@ -40,6 +40,8 @@ type StationView struct {
 
 var stationview StationView
 
+var shouldCheck bool
+
 type StationItem struct {
 	CallSign string
 	Location string
@@ -110,22 +112,27 @@ func accessAPI(callsign string) (*SearchResult, error) {
 
 }
 
-func update(data SearchResult) {
+func getContestNumber(location string) string {
+	// datファイルを全探索してコンテストナンバーを検索
+	// 速度改善の余地あり
+	number := "ナンバー不明"
+	for _, row := range numberTable {
+		if row[0] == location {
+			number = row[1]
+		}
+	}
+	return number
+}
+
+func updateList(data SearchResult) {
 	//listを消す
 	stationview.list.DeleteAllItems()
 	// 検索にヒットした局ごとにコールサイン、JCC/JCGナンバーを出力
 	for _, radioStation := range data.Musen {
 		info := radioStation.DetailInfo
 		callSign := strings.TrimSpace(info.IdentificationSignals)
-		// datファイルを全探索してコンテストナンバーを検索
-		// 速度改善の余地あり
 		location := info.RadioEuipmentLocation
-		number := "ナンバー不明"
-		for _, row := range numberTable {
-			if row[0] == location {
-				number = row[1]
-			}
-		}
+		number := getContestNumber(location)
 
 		// info.RadioSpec1より周波数帯の出力
 		power := freqstring(strings.TrimSpace(info.RadioSpec1))
@@ -163,23 +170,20 @@ func freqstring(index string) string {
 }
 
 func validateCallsign(callsign string) {
-	if callsign == "Zylo" {
-		return
-	}
+
 	data, err := accessAPI(callsign)
+
 	if err != nil {
 		raiseError(err)
-		return
-	}
-	if len(data.Musen) == 0 {
+	} else if len(data.Musen) == 0 {
 		reiwa.DisplayToast("該当局が見つかりません")
-		return
 	}
-	reiwa.DisplayToast(data.Musen[0].DetailInfo.IdentificationSignals)
 }
 
 func onInsertEvent(qso *reiwa.QSO) {
-	go validateCallsign(qso.GetCallSign())
+	if shouldCheck {
+		go validateCallsign(qso.GetCallSign())
+	}
 }
 
 func getCallsignInput() string {
@@ -189,7 +193,7 @@ func getCallsignInput() string {
 func fetchDataAndUpdate(callsign string) {
 	data, err := accessAPI(callsign)
 	if err == nil {
-		update(*data)
+		updateList(*data)
 	}
 }
 
@@ -240,11 +244,25 @@ func init() {
 }
 
 func onLaunchEvent() {
+
+	shouldCheck = false
+
 	reiwa.RunDelphi(`PluginMenu.Add(op.Put(MainMenu.CreateMenuItem(), "Name", "PluginsoumuAPIWindow"))`)
 	reiwa.RunDelphi(`op.Put(MainMenu.FindComponent("PluginsoumuAPIWindow"), "Caption", "総務省API ウィンドウ")`)
 
+	reiwa.RunDelphi(`PluginMenu.Add(op.Put(MainMenu.CreateMenuItem(), "Name", "PluginsoumuAPIAuto"))`)
+	reiwa.RunDelphi(`op.Put(MainMenu.FindComponent("PluginsoumuAPIAuto"), "Caption", "総務省APIの自動チェックを有効にする")`)
+
 	reiwa.RunDelphi(`PluginMenu.Add(op.Put(MainMenu.CreateMenuItem(), "Name", "PluginsoumuAPIRule"))`)
 	reiwa.RunDelphi(`op.Put(MainMenu.FindComponent("PluginsoumuAPIRule"), "Caption", "総務省API 利用規約")`)
+
+	reiwa.HandleButton("MainForm.MainMenu.PluginsoumuAPIAuto", func(num int) {
+		if shouldCheck {
+			shouldCheck = false
+		} else {
+			shouldCheck = true
+		}
+	})
 
 	reiwa.HandleButton("MainForm.MainMenu.PluginsoumuAPIWindow", func(num int) {
 		readACAG()
