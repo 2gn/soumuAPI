@@ -162,26 +162,46 @@ func freqstring(index string) string {
 	}
 }
 
-func onInsertEvent(qso *reiwa.QSO) {
-	// data, err := accessAPI(qso.GetCallSign())
-	// if err != nil {
-	// 	raiseError(err)
-	// 	return
-	// }
-	// reiwa.DisplayToast(data.Musen[0].DetailInfo.RadioEuipmentLocation)
-}
-
-func btnpush() {
-	callsign := reiwa.Query("$B")
-	if len(callsign) < 4 {
-		err := errors.New("callsign too short")
+func validateCallsign(callsign string) {
+	if callsign == "Zylo" {
+		return
+	}
+	data, err := accessAPI(callsign)
+	if err != nil {
 		raiseError(err)
 		return
 	}
+	if len(data.Musen) == 0 {
+		reiwa.DisplayToast("該当局が見つかりません")
+		return
+	}
+	reiwa.DisplayToast(data.Musen[0].DetailInfo.IdentificationSignals)
+}
+
+func onInsertEvent(qso *reiwa.QSO) {
+	go validateCallsign(qso.GetCallSign())
+}
+
+func getCallsignInput() string {
+	return reiwa.Query("$B")
+}
+
+func fetchDataAndUpdate(callsign string) {
 	data, err := accessAPI(callsign)
 	if err == nil {
 		update(*data)
 	}
+}
+
+func btnpush() {
+	callsign := getCallsignInput()
+
+	if len(callsign) < 4 {
+		raiseError(errors.New("callsign too short"))
+		return
+	}
+
+	go fetchDataAndUpdate(callsign)
 	return
 }
 
