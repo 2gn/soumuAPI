@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,9 +123,12 @@ func getContestNumber(location string) string {
 	return number
 }
 
+func addItemToList(item StationItem) {
+	stationview.list.AddItem(item)
+}
+
 func updateList(data SearchResult) {
 	//listを消す
-	stationview.list.DeleteAllItems()
 	// 検索にヒットした局ごとにコールサイン、JCC/JCGナンバーを出力
 	for _, radioStation := range data.Musen {
 		info := radioStation.DetailInfo
@@ -137,7 +139,7 @@ func updateList(data SearchResult) {
 		// info.RadioSpec1より周波数帯の出力
 		power := freqstring(strings.TrimSpace(info.RadioSpec1))
 
-		stationview.list.AddItem(StationItem{
+		addItemToList(StationItem{
 			CallSign: callSign,
 			Location: location,
 			Number:   number,
@@ -170,13 +172,18 @@ func freqstring(index string) string {
 }
 
 func validateCallsign(callsign string) {
-
 	data, err := accessAPI(callsign)
-
 	if err != nil {
 		raiseError(err)
 	} else if len(data.Musen) == 0 {
 		reiwa.DisplayToast("該当局が見つかりません")
+		addItemToList(StationItem{
+			CallSign: callsign,
+			Location: "INVALID",
+			Number:   "INVALID",
+			Power:    "INVALID",
+		})
+
 	}
 }
 
@@ -190,24 +197,24 @@ func getCallsignInput() string {
 	return reiwa.Query("$B")
 }
 
-func fetchDataAndUpdate(callsign string) {
-	data, err := accessAPI(callsign)
-	if err == nil {
-		updateList(*data)
-	}
-}
+// func fetchDataAndUpdate(callsign string) {
+// 	data, err := accessAPI(callsign)
+// 	if err == nil {
+// 		updateList(*data)
+// 	}
+// }
 
-func btnpush() {
-	callsign := getCallsignInput()
+// func btnpush() {
+// 	callsign := getCallsignInput()
 
-	if len(callsign) < 4 {
-		raiseError(errors.New("callsign too short"))
-		return
-	}
+// 	if len(callsign) < 4 {
+// 		raiseError(errors.New("callsign too short"))
+// 		return
+// 	}
 
-	go fetchDataAndUpdate(callsign)
-	return
-}
+// 	go fetchDataAndUpdate(callsign)
+// 	return
+// }
 
 var mainWindow *winc.Form
 
@@ -215,14 +222,10 @@ func makewindow() {
 	// --- Make Window
 	mainWindow = win32.NewForm(nil)
 
-	btn := winc.NewPushButton(mainWindow)
-	btn.SetText("check")
-	btn.SetPos(40, 50)
-	btn.SetSize(100, 40)
-
-	btn.OnClick().Bind(func(e *winc.Event) {
-		go btnpush()
-	})
+	label := winc.NewLabel(mainWindow)
+	label.SetText("List of Wrong Callsigns")
+	label.SetPos(40, 50)
+	label.SetSize(100, 40)
 
 	stationview.list = winc.NewListView(mainWindow)
 	stationview.list.EnableEditLabels(false)
@@ -230,9 +233,10 @@ func makewindow() {
 	stationview.list.AddColumn("location", 200)
 	stationview.list.AddColumn("number", 120)
 	stationview.list.AddColumn("license", 120)
+
 	dock := winc.NewSimpleDock(mainWindow)
 	dock.Dock(stationview.list, winc.Fill)
-	dock.Dock(btn, winc.Top)
+	dock.Dock(label, winc.Top)
 
 	mainWindow.Show()
 }
