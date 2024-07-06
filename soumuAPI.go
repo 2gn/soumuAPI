@@ -4,8 +4,10 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -39,14 +41,15 @@ type StationView struct {
 
 var stationview StationView
 
-var shouldCheck bool
-
 type StationItem struct {
 	CallSign string
 	Location string
 	Number   string
 	Power    string
 }
+
+var shouldCheck bool
+var isConnectedtoZServer bool
 
 func (item StationItem) Text() (text []string) {
 	text = append(text, item.CallSign)
@@ -92,7 +95,6 @@ func parseResult(resp *http.Response) (*SearchResult, error) {
 }
 
 func accessAPI(callsign string) (*SearchResult, error) {
-	data := new(SearchResult)
 	//空データを作る
 	//コールサインをzlogから取得
 
@@ -104,10 +106,16 @@ func accessAPI(callsign string) (*SearchResult, error) {
 	//httpアクセスでエラーを吐いた時は出る
 	if err != nil {
 		raiseError(err)
-		return data, err
+		return nil, err
 	}
 
-	return parseResult(resp)
+	data, err := parseResult(resp)
+
+	if err != nil {
+		// raiseError(err)
+		return nil, err
+	}
+	return data, err
 
 }
 
@@ -129,6 +137,7 @@ func addItemToList(item StationItem) {
 
 func updateList(data SearchResult) {
 	//listを消す
+	stationview.list.DeleteAllItems()
 	// 検索にヒットした局ごとにコールサイン、JCC/JCGナンバーを出力
 	for _, radioStation := range data.Musen {
 		info := radioStation.DetailInfo
@@ -138,13 +147,13 @@ func updateList(data SearchResult) {
 
 		// info.RadioSpec1より周波数帯の出力
 		power := freqstring(strings.TrimSpace(info.RadioSpec1))
-
 		addItemToList(StationItem{
 			CallSign: callSign,
 			Location: location,
 			Number:   number,
 			Power:    power,
 		})
+
 	}
 }
 
@@ -171,19 +180,29 @@ func freqstring(index string) string {
 	}
 }
 
+var conn net.Conn
+var telnet_err error
+
+func sendZmessage(msg string) {
+	if !isConnectedtoZServer {
+		reiwa.DisplayToast("Zserverに接続されていません")
+	}
+
+	_, err := conn.Write([]byte("#ZLOG# PUTMESSAGE <SYSTEM>" + msg + "\r\n"))
+
+	if err != nil {
+		reiwa.DisplayToast("メッセージの送信に失敗しました: %s", err)
+	}
+}
+
 func validateCallsign(callsign string) {
+
 	data, err := accessAPI(callsign)
+
 	if err != nil {
 		raiseError(err)
 	} else if len(data.Musen) == 0 {
-		reiwa.DisplayToast("該当局が見つかりません")
-		addItemToList(StationItem{
-			CallSign: callsign,
-			Location: "INVALID",
-			Number:   "INVALID",
-			Power:    "INVALID",
-		})
-
+		sendZmessage(fmt.Sprintf("INVALID CALLSIGN %s", callsign))
 	}
 }
 
@@ -197,24 +216,24 @@ func getCallsignInput() string {
 	return reiwa.Query("$B")
 }
 
-// func fetchDataAndUpdate(callsign string) {
-// 	data, err := accessAPI(callsign)
-// 	if err == nil {
-// 		updateList(*data)
-// 	}
-// }
+func fetchDataAndUpdate(callsign string) {
+	data, err := accessAPI(callsign)
+	if err == nil {
+		updateList(*data)
+	}
+}
 
-// func btnpush() {
-// 	callsign := getCallsignInput()
+func btnpush() {
+	callsign := getCallsignInput()
 
-// 	if len(callsign) < 4 {
-// 		raiseError(errors.New("callsign too short"))
-// 		return
-// 	}
+	if len(callsign) < 4 {
+		raiseError(errors.New("callsign too short"))
+		return
+	}
 
-// 	go fetchDataAndUpdate(callsign)
-// 	return
-// }
+	go fetchDataAndUpdate(callsign)
+	return
+}
 
 var mainWindow *winc.Form
 
@@ -222,10 +241,14 @@ func makewindow() {
 	// --- Make Window
 	mainWindow = win32.NewForm(nil)
 
-	label := winc.NewLabel(mainWindow)
-	label.SetText("List of Wrong Callsigns")
-	label.SetPos(40, 50)
-	label.SetSize(100, 40)
+	btn := winc.NewPushButton(mainWindow)
+	btn.SetText("check")
+	btn.SetPos(40, 50)
+	btn.SetSize(100, 40)
+
+	btn.OnClick().Bind(func(e *winc.Event) {
+		go btnpush()
+	})
 
 	stationview.list = winc.NewListView(mainWindow)
 	stationview.list.EnableEditLabels(false)
@@ -233,10 +256,9 @@ func makewindow() {
 	stationview.list.AddColumn("location", 200)
 	stationview.list.AddColumn("number", 120)
 	stationview.list.AddColumn("license", 120)
-
 	dock := winc.NewSimpleDock(mainWindow)
 	dock.Dock(stationview.list, winc.Fill)
-	dock.Dock(label, winc.Top)
+	dock.Dock(btn, winc.Top)
 
 	mainWindow.Show()
 }
@@ -245,6 +267,22 @@ func init() {
 	reiwa.OnLaunchEvent = onLaunchEvent
 	reiwa.OnInsertEvent = onInsertEvent
 	reiwa.PluginName = "soumuAPI"
+}
+
+func connectToZServer() {
+	conn, telnet_err = net.Dial("tcp", "localhost:23")
+	if telnet_err != nil {
+		reiwa.DisplayToast("Zserverに接続できませんでした: %s", telnet_err)
+		return
+	}
+	isConnectedtoZServer = true
+	reiwa.DisplayToast("Zserverに接続しました")
+}
+
+func disconnectZServer() {
+	conn.Close()
+	isConnectedtoZServer = false
+	reiwa.DisplayToast("Zserverから切断しました")
 }
 
 func onLaunchEvent() {
@@ -263,8 +301,12 @@ func onLaunchEvent() {
 	reiwa.HandleButton("MainForm.MainMenu.PluginsoumuAPIAuto", func(num int) {
 		if shouldCheck {
 			shouldCheck = false
+			reiwa.DisplayToast("自動チェックを無効にしました")
+			disconnectZServer()
 		} else {
 			shouldCheck = true
+			reiwa.DisplayToast("自動チェックを有効にしました")
+			connectToZServer()
 		}
 	})
 
